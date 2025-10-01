@@ -1,20 +1,31 @@
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
-const AssignedSchema = new mongoose.Schema({
-  leadId: {
-    type: String, // Assuming leadId is a string, can be changed to ObjectId if there's a Lead model
+const ItemSchema = new Schema({
+  firstName: {
+    type: String,
     required: true
   },
+  phone: {
+    type: String,
+    required: true
+  },
+  notes: {
+    type: String
+  },
+  originalRowIndex: {
+    type: Number,
+    required: true
+  }
+});
+
+const AssignedSchema = new mongoose.Schema({
   agent: {
     type: Schema.Types.ObjectId,
     ref: 'Agent',
     required: true
   },
-  assignedAt: {
-    type: Date,
-    default: Date.now
-  }
+  items: [ItemSchema]
 }, { timestamps: true });
 
 module.exports = mongoose.model('Assigned', AssignedSchema);
