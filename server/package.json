@@ -3,7 +3,16 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "comment": "start: Runs production server. dev: Dev server with nodemon. seed-admin: Create admin. lint/format: Code quality. test: Placeholder. build-client: Build React app. start-prod: Build client and run prod server. check-env: Validate environment variables.",
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "seed-admin": "node ./scripts/seedAdmin.js",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test": "echo \"No tests yet\" && exit 0",
+    "build-client": "npm run build --prefix ../client",
+    "start-prod": "npm run build-client && node server.js",
+    "check-env": "node -e \"if (!process.env.MONGO_URI || !process.env.JWT_SECRET) { console.error('FATAL ERROR: MONGO_URI and JWT_SECRET must be defined.'); process.exit(1); }\""
   },
   "keywords": [],
   "author": "",
@@ -21,6 +30,8 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10"
+    "eslint": "^9.36.0",
+    "nodemon": "^3.1.10",
+    "prettier": "^3.6.2"
   }
 }
