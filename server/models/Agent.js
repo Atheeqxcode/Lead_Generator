@@ -12,14 +12,13 @@ const AgentSchema = new mongoose.Schema({
     unique: true,
     match: [/.+\@.+\..+/, 'Please fill a valid email address']
   },
-  phone: {
+  mobile: {
     type: String,
     required: true
   },
-  status: {
+  passwordHash: {
     type: String,
-    enum: ['active', 'inactive'],
-    default: 'active'
+    required: true
   }
 }, { timestamps: true });
 
