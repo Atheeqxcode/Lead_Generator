@@ -11,139 +11,172 @@ const Agent = require('../models/Agent');
 const Assigned = require('../models/Assigned');
 
 // Multer setup for file uploads
-const upload = multer({ dest: os.tmpdir() });
+const upload = multer({ dest: 'uploads/' });
 
 // Allowed file types
 const allowedFileTypes = ['.csv', '.xls', '.xlsx'];
 
 // @route   POST api/upload
-// @desc    Upload, parse, and distribute leads
+// @desc    Upload a file for lead distribution
 // @access  Private
 router.post('/', [auth, upload.single('file')], async (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ msg: 'No file uploaded' });
+    return res.status(400).json({ message: 'No file uploaded.' });
   }
 
-  const filePath = req.file.path;
-  const fileExt = path.extname(req.file.originalname).toLowerCase();
-
-  // Check for allowed file types
-  if (!allowedFileTypes.includes(fileExt)) {
-    fs.unlinkSync(filePath); // Clean up uploaded file
-    return res.status(400).json({ msg: `File type not allowed. Allowed types: ${allowedFileTypes.join(', ')}` });
+  // --- Agent Selection ---
+  let selectedAgentIds;
+  try {
+    console.log('Raw req.body.agents:', req.body.agents);
+    selectedAgentIds = JSON.parse(req.body.agents || '[]');
+    console.log('Parsed selectedAgentIds:', selectedAgentIds);
+    if (!Array.isArray(selectedAgentIds) || selectedAgentIds.length === 0) {
+      console.log('No agents selected');
+      return res.status(400).json({ message: 'No agents selected for distribution.' });
+    }
+  } catch (e) {
+    console.log('Error parsing agents:', e.message);
+    return res.status(400).json({ message: 'Invalid format for selected agents.' });
   }
+
+  const { path: filePath, originalname } = req.file;
+  const fileExt = path.extname(originalname).toLowerCase();
 
   const rows = [];
-  let invalidRowCount = 0;
+  let invalidRows = [];
+
+  const processFile = () => {
+    return new Promise((resolve, reject) => {
+      const stream = fs.createReadStream(filePath);
+      stream
+        .pipe(csv())
+        .on('data', (row) => rows.push(row))
+        .on('end', () => {
+          fs.unlinkSync(filePath); // Clean up file
+          resolve();
+        })
+        .on('error', (err) => {
+          fs.unlinkSync(filePath); // Clean up file
+          reject(err);
+        });
+    });
+  };
 
   try {
     // Parse file based on extension
     if (fileExt === '.csv') {
-      fs.createReadStream(filePath)
-        .pipe(csv())
-        .on('data', (row) => rows.push(row))
-        .on('end', () => processRows(rows));
+      await processFile();
     } else { // .xls or .xlsx
       const workbook = xlsx.readFile(filePath);
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
-      const jsonData = xlsx.utils.sheet_to_json(sheet);
-      rows.push(...jsonData);
-      processRows(rows);
-    }
-  } catch (err) {
-    console.error(err.message);
-    fs.unlinkSync(filePath);
-    return res.status(500).send('Error parsing file');
-  }
-
-  async function processRows(parsedRows) {
-    fs.unlinkSync(filePath); // Clean up uploaded file
-
-    // Normalize and validate rows
-    const normalizedRows = parsedRows.map(row => {
-        const normalized = {};
-        for (const key in row) {
-            normalized[key.toLowerCase()] = row[key];
-        }
-        return {
-            firstName: normalized.firstname || normalized['first name'],
-            phone: normalized.phone,
-            notes: normalized.notes,
-        };
-    });
-
-    const validRows = normalizedRows.filter(row => {
-        const isValid = row.firstName && row.phone;
-        if (!isValid) invalidRowCount++;
-        return isValid;
-    });
-
-    if (invalidRowCount > 0) {
-        return res.status(400).json({ msg: `Found ${invalidRowCount} invalid rows. 'FirstName' and 'Phone' are required.` });
+      rows.push(...xlsx.utils.sheet_to_json(sheet));
+      fs.unlinkSync(filePath); // Clean up file
     }
 
-    try {
-        // Fetch first 5 agents
-        const agents = await Agent.find().limit(5);
-        if (agents.length < 5) {
-            return res.status(400).json({ msg: 'Fewer than 5 agents found in the database.' });
-        }
+    // --- Start Processing Rows ---
+    
+    console.log('Total rows parsed:', rows.length);
+    
+    if (rows.length === 0) {
+      console.log('No rows found in file');
+      return res.status(400).json({ message: 'The uploaded file is empty.' });
+    }
 
-        // Distribution logic
-        const total = validRows.length;
-        const base = Math.floor(total / 5);
-        const remainder = total % 5;
-        const assignments = [];
+    // Don't validate column names - just use all rows as they are
+    const validRows = rows.filter(row => {
+      // Only skip completely empty rows
+      return Object.keys(row).length > 0 && Object.values(row).some(val => val && val.toString().trim() !== '');
+    });
 
-        let currentIndex = 0;
-        for (let i = 0; i < 5; i++) {
-            const agent = agents[i];
-            const assignedCount = base + (i < remainder ? 1 : 0);
-            const items = validRows.slice(currentIndex, currentIndex + assignedCount).map((row, index) => ({
-                ...row,
-                originalRowIndex: currentIndex + index
-            }));
-            
-            currentIndex += assignedCount;
+    console.log('Valid rows after filtering empty:', validRows.length);
 
-            // Overwrite previous assignment
-            await Assigned.findOneAndDelete({ agent: agent._id });
-            const newAssignment = new Assigned({ agent: agent._id, items });
-            await newAssignment.save();
-            
-            const populatedAssignment = await Assigned.findById(newAssignment._id).populate('agent', '-passwordHash');
-            assignments.push(populatedAssignment);
-        }
+    // --- Updated Distribution Logic ---
 
-        res.json({
-            message: 'Leads distributed and assigned successfully.',
-            total,
-            assignments: assignments.map(a => ({
-                agentId: a.agent._id,
-                assignedCount: a.items.length
-            })),
-            data: assignments
+    console.log('Valid rows count:', validRows.length);
+    console.log('Selected agent IDs:', selectedAgentIds);
+
+    // Fetch only the selected agents from the database
+    const selectedAgents = await Agent.find({ '_id': { $in: selectedAgentIds } });
+    console.log('Found agents:', selectedAgents.length);
+    console.log('Agent details:', selectedAgents.map(a => ({ id: a._id.toString(), name: a.name })));
+    
+    if (selectedAgents.length !== selectedAgentIds.length) {
+      console.log('Agent count mismatch!');
+      return res.status(400).json({ message: 'One or more selected agents could not be found.' });
+    }
+
+    if (validRows.length === 0) {
+      console.log('No valid rows to distribute');
+      return res.status(400).json({ message: 'No valid leads found in the uploaded file.' });
+    }
+
+    // Distribute leads only among the selected agents
+    const total = validRows.length;
+    const agentsCount = selectedAgents.length;
+    const base = Math.floor(total / agentsCount);
+    const remainder = total % agentsCount;
+    const assignments = [];
+
+    console.log('Distribution plan:', { total, agentsCount, base, remainder });
+
+    let currentIndex = 0;
+    for (let i = 0; i < agentsCount; i++) {
+      const agent = selectedAgents[i];
+      const itemsToAssignCount = base + (i < remainder ? 1 : 0);
+      if (itemsToAssignCount === 0) continue;
+
+      const itemsForAgent = validRows.slice(currentIndex, currentIndex + itemsToAssignCount);
+      currentIndex += itemsToAssignCount;
+
+      console.log(`Assigning ${itemsToAssignCount} leads to agent ${agent.name} (${agent._id})`);
+
+      // Find existing assignment or create new
+      let assignment = await Assigned.findOne({ agent: agent._id });
+      if (assignment) {
+        assignment.items.push(...itemsForAgent);
+        console.log(`Updated existing assignment for ${agent.name}, total items: ${assignment.items.length}`);
+      } else {
+        assignment = new Assigned({
+          agent: agent._id,
+          items: itemsForAgent,
         });
-
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server Error');
+        console.log(`Created new assignment for ${agent.name}`);
+      }
+      assignments.push(assignment.save());
     }
+
+    await Promise.all(assignments);
+    console.log('All assignments saved successfully');
+
+    res.json({
+        message: 'File processed and leads distributed successfully.',
+        totalRows: rows.length,
+        distributedCount: validRows.length,
+        invalidRows: [],
+    });
+
+  } catch (err) {
+    console.error('Error processing file:', err);
+    console.error('Error stack:', err.stack);
+    if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+    }
+    return res.status(500).json({ message: 'Error processing file: ' + err.message });
   }
 });
 
 // @route   GET api/upload
-// @desc    Get all assigned lists
+// @desc    Get all assigned leads
 // @access  Private
 router.get('/', auth, async (req, res) => {
-    try {
-        const assignments = await Assigned.find().populate('agent', '-passwordHash');
-        res.json(assignments);
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server Error');
-    }
+  try {
+    const assignments = await Assigned.find().populate('agent', 'name email');
+    res.json(assignments);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
+  }
 });
 
 module.exports = router;

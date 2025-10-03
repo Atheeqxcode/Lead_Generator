@@ -8,20 +8,26 @@ const Agent = require('../models/Agent');
 // @desc    Create an agent
 // @access  Private
 router.post('/', auth, async (req, res) => {
+  console.log('Received POST /api/agents request');
+  console.log('Request body:', req.body);
+  
   const { name, email, mobile, password } = req.body;
 
   // Validate required fields
   if (!name || !email || !mobile || !password) {
-    return res.status(400).json({ msg: 'Please provide name, email, mobile, and password' });
+    console.log('Validation failed - missing fields:', { name: !!name, email: !!email, mobile: !!mobile, password: !!password });
+    return res.status(400).json({ message: 'Please provide name, email, mobile, and password' });
   }
 
   try {
     // Check if agent already exists
     let agent = await Agent.findOne({ email });
     if (agent) {
-      return res.status(400).json({ msg: 'Agent already exists' });
+      console.log('Agent already exists with email:', email);
+      return res.status(400).json({ message: 'Agent already exists' });
     }
 
+    console.log('Creating new agent...');
     agent = new Agent({
       name,
       email,
@@ -32,7 +38,9 @@ router.post('/', auth, async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     agent.passwordHash = await bcrypt.hash(password, salt);
 
+    console.log('Saving agent to database...');
     await agent.save();
+    console.log('Agent saved successfully');
 
     // Return agent without passwordHash
     const agentResponse = agent.toObject();
@@ -41,8 +49,9 @@ router.post('/', auth, async (req, res) => {
     res.status(201).json(agentResponse);
 
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server Error');
+    console.error('Error creating agent:', err.message);
+    console.error('Full error:', err);
+    res.status(500).json({ message: 'Server Error: ' + err.message });
   }
 });
 
@@ -54,8 +63,8 @@ router.get('/', auth, async (req, res) => {
     const agents = await Agent.find().select('-passwordHash');
     res.json(agents);
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server Error');
+    console.error('Error fetching agents:', err.message);
+    res.status(500).json({ message: 'Server Error' });
   }
 });
 
