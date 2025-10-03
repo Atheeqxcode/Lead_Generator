@@ -1,0 +1,33 @@
+# Node
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Env files
+*.env
+server/.env
+
+# Lock files
+package-lock.json
+yarn.lock
+
+# OS / editors
+.DS_Store
+.vscode/
+*.log
+
+# Build / dist
+/dist
+/build
+
+# Uploads folder
+server/uploads/
+
+# Coverage
+coverage/
+*.lcov
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

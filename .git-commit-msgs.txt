@@ -1,0 +1,9 @@
+feat: [JIRA-TICKET] A brief, imperative-style summary of the feature
+
+body: A more detailed explanatory text if needed. Wrap it to about 72 characters. The body may contain multiple paragraphs.
+
+- Further paragraphs come after blank lines.
+- Bullet points are okay, too.
+- Typically, a hyphen or asterisk is used for the bullet, preceded by a single space, with blank lines in between.
+
+BREAKING CHANGE: A detailed description of the breaking change. This section is only included if the commit introduces a breaking change.

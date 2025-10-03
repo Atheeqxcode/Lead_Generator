@@ -1,0 +1,14 @@
+{
+  "name": "lead-distributor",
+  "version": "1.0.0",
+  "private": true,
+  "comment": "Root package for orchestrating client and server development. Use 'npm run dev' to start both.",
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix server\" \"npm run start --prefix client\"",
+    "start": "node server/server.js",
+    "install-all": "cd server && npm install && cd ../client && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
